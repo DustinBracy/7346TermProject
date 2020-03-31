@@ -1,0 +1,748 @@
+---
+title: "ETL Script"
+author: "Dustin"
+date: "3/27/2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(feather)
+library(tidyverse)
+library(dplyr)
+library(caret)
+library(reticulate)
+use_python("C:/Users/Dustin/miniconda3/envs/MSDS")
+setwd("D:/Documents/College/SMU/DS7346-CloudComputing/Project")
+#df <- feather::read_feather('2007-2018.feather')
+
+
+plotNAs <- function(x) {
+  # Missing values code borrowed from: https://jenslaufer.com/data/analysis/visualize_missing_values_with_ggplot.html
+    missing.values <- x %>% gather(key = "key", value = "val") %>%
+    mutate(isna = is.na(val)) %>%   group_by(key) %>%
+    mutate(total = n()) %>%   group_by(key, total, isna) %>%
+    summarise(num.isna = n()) %>%   mutate(pct = num.isna / total * 100)
+  
+  levels <- (missing.values  %>% filter(isna == T) %>% arrange(desc(pct)))$key
+  
+  percentage.plot <- missing.values %>% ggplot() + geom_bar(aes(x = reorder(key, desc(pct)), y = pct, fill=isna), 
+                                                            stat = 'identity', alpha=0.8) + scale_x_discrete(limits = levels) + 
+    scale_fill_manual(name = "", values = c('steelblue', 'tomato3'), labels = c("Present", "Missing")) + 
+    coord_flip() + labs(title = "Percentage of missing values", x = 'Columns with missing data', y = "Percentage of missing values")
+  return(percentage.plot)
+}
+```
+
+
+```{r parse}
+
+#Household Info:
+getHH <- function(x) {
+  return(read_fwf(x,
+                  fwf_cols(
+                    HRECORD = c(1,1),
+                    H_SEQ = c(2,6),
+                    HHPOS = c(7,8),
+                    HUNITS = c(9,9),
+                    HEFAMINC = c(10,11),
+                    H_RESPNM = c(12,13),
+                    H_YEAR = c(14,17),
+                    H_HHTYPE = c(20,20),
+                    H_NUMPER = c(21,22),
+                    HNUMFAM = c(23,24),
+                    H_TYPE = c(25,25),
+                    H_MONTH = c(26,27),
+                    H_MIS = c(29,29),
+                    H_HHNUM = c(30,30),
+                    H_LIVQRT = c(31,32),
+                    H_TYPEBC = c(33,34),
+                    H_TENURE = c(35,35),
+                    H_TELHHD = c(36,36),
+                    H_TELAVL = c(37,37),
+                    H_TELINT = c(38,38),
+                    GEREG = c(39,39),
+                    GESTFIPS = c(42,43),
+                    GTCBSA = c(44,48),
+                    GTCO = c(49,51),
+                    GTCBSAST = c(52,52),
+                    GTMETSTA = c(53,53),
+                    GTINDVPC = c(54,54),
+                    GTCBSASZ = c(55,55),
+                    GTCSA = c(56,58),
+                    HUNDER15 = c(60,61),
+                    HH5TO18 = c(68,69),
+                    HHOTLUN = c(70,70),
+                    HHOTNO = c(71,71),
+                    HFLUNCH = c(72,72),
+                    HFLUNNO = c(73,73),
+                    HPUBLIC = c(74,74),
+                    HLORENT = c(75,75),
+                    HFOODSP = c(76,76),
+                    HFOODNO = c(77,77),
+                    HFOODMO = c(79,80),
+                    HENGAST = c(85,85),
+                    HENGVAL = c(86,89),
+                    HINC_WS = c(90,90),
+                    HWSVAL = c(91,97),
+                    HINC_SE = c(98,98),
+                    HSEVAL = c(99,105),
+                    HINC_FR = c(106,106),
+                    HFRVAL = c(107,113),
+                    HINC_UC = c(114,114),
+                    HUCVAL = c(115,121),
+                    HINC_WC = c(122,122),
+                    HWCVAL = c(123,129),
+                    HSS_YN = c(130,130),
+                    HSSVAL = c(131,137),
+                    HSSI_YN = c(138,138),
+                    HSSIVAL = c(139,144),
+                    HPAW_YN = c(145,145),
+                    HPAWVAL = c(146,151),
+                    HVET_YN = c(152,152),
+                    HVETVAL = c(153,159),
+                    HSUR_YN = c(160,160),
+                    HSURVAL = c(161,167),
+                    HDIS_YN = c(168,168),
+                    HDISVAL = c(169,175),
+                    HRET_YN = c(176,176),
+                    HRETVAL = c(177,183),
+                    HINT_YN = c(184,184),
+                    HINTVAL = c(185,191),
+                    HDIV_YN = c(192,192),
+                    HDIVVAL = c(193,199),
+                    HRNT_YN = c(200,200),
+                    HRNTVAL = c(201,207),
+                    HED_YN = c(208,208),
+                    HEDVAL = c(209,215),
+                    HCSP_YN = c(216,216),
+                    HCSPVAL = c(217,223),
+                    HFIN_YN = c(232,232),
+                    HFINVAL = c(233,239),
+                    HOI_YN = c(240,240),
+                    HOIVAL = c(241,247),
+                    HTOTVAL = c(248,255),
+                    HEARNVAL = c(256,263),
+                    HOTHVAL = c(264,271),
+                    HHINC = c(272,273),
+                    HMCARE = c(274,274),
+                    HMCAID = c(275,275),
+                    HCHAMP = c(276,276),
+                    HHI_YN = c(277,277),
+                    HHSTATUS = c(278,278),
+                    HUNDER18 = c(279,280),
+                    HTOP5PCT = c(281,281),
+                    HPCTCUT = c(282,283),
+                    HSUP_WGT = c(287,294),
+                    H1TENURE = c(295,295),
+                    H1LIVQRT = c(297,297),
+                    H1TELHHD = c(299,299),
+                    H1TELAVL = c(300,300),
+                    H1TELINT = c(301,301),
+                    I_HHOTLU = c(308,308),
+                    I_HHOTNO = c(309,309),
+                    I_HFLUNC = c(310,310),
+                    I_HFLUNN = c(311,311),
+                    I_HPUBLI = c(312,312),
+                    I_HLOREN = c(313,313),
+                    I_HFOODS = c(314,314),
+                    I_HFDVAL = c(315,315),
+                    I_HFOODN = c(316,316),
+                    I_HFOODM = c(317,317),
+                    I_HENGAS = c(318,318),
+                    I_HENGVA = c(319,319),
+                    H_IDNUM2 = c(320,324),
+                    PROP_TAX = c(332,336),
+                    HOUSRET = c(337,341),
+                    HRHTYPE = c(342,343),
+                    H_IDNUM1 = c(344,358),
+                    I_HUNITS = c(359,359),
+                    HRPAIDCC = c(367,367),
+                    HPROP_VAL = c(368,375),
+                    THPROP_VAL = c(376,376),
+                    I_PROPVAL = c(377,377),
+                    HRNUMWIC = c(383,384),
+                    HRWICYN = c(386,386),
+                    HFDVAL = c(387,391),
+                    TCARE_VAL = c(392,392),
+                    CARE_VAL = c(393,398),
+                    I_CAREVAL = c(399,399),
+                    HPRES_MORT = c(400,400)
+                  ),
+                  cols(.default = 'n')
+  )
+  )
+}
+
+df2007 <- filter(getHH('./asec/asec2007_pubuse_tax2.dat'), HRECORD == 1)
+df2008 <- filter(getHH('./asec/asec2008_pubuse.dat'), HRECORD == 1)
+df2009 <- filter(getHH('./asec/asec2009_pubuse.dat'), HRECORD == 1)
+df2010 <- filter(getHH('./asec/asec2010_pubuse.dat'), HRECORD == 1)
+df2011 <- filter(getHH('./asec/asec2011_pubuse.dat'), HRECORD == 1)
+df2012 <- filter(getHH('./asec/asec2012_pubuse.dat'), HRECORD == 1)
+df2013 <- filter(getHH('./asec/asec2013_pubuse.dat'), HRECORD == 1)  
+df2014 <- filter(getHH('./asec/asec2014_pubuse_tax_fix_5x8_2017.dat'), HRECORD == 1)
+df2015 <- filter(getHH('./asec/asec2015_pubuse.dat'), HRECORD == 1)
+df2016 <- filter(getHH('./asec/asec2016_pubuse_v3.dat'), HRECORD == 1)
+df2017 <- filter(getHH('./asec/asec2017_pubuse.dat'), HRECORD == 1)
+df2018 <- filter(getHH('./asec/asec2018_pubuse.dat'), HRECORD == 1)
+#df2019 <- filter(getHH('./asec/asec2019_pubuse.dat'), HRECORD == 1)
+
+fullDf <- bind_rows(df2007,df2008,df2009,df2010,df2011,df2012,df2013,df2014,df2015,df2016,df2017,df2018)
+
+#write_feather(fullDf, './asec/2007-2018.feather')
+
+```
+
+
+```{python rename_cols}
+
+#%matplotlib inline
+import numpy as np
+import pandas as pd
+import math
+import feather
+from matplotlib import pyplot as plt
+import seaborn as sns
+import pickle
+
+df = r.fullDf.rename(columns = {
+'HRECORD':'record',
+'H_SEQ':'sequence_HH',
+'HHPOS':'last_Two_ID',
+'HUNITS':'num_HH_Units',
+'HEFAMINC':'fam_Income',
+'H_RESPNM':'respondent_Line_Num',
+'H_YEAR':'year_of_Survey',
+'H_HHTYPE':'interview',
+'H_NUMPER':'people_in_HH',
+'HNUMFAM':'families_in_HH',
+'H_TYPE':'type_of_HH',
+'H_MONTH':'month_of_Survey',
+'H_MIS':'month_in_Sample',
+'H_HHNUM':'HH_number',
+'H_LIVQRT':'type_of_Living_Quarters',
+'H_TYPEBC':'status_of_HH',
+'H_TENURE':'type_of_Ownership',
+'H_TELHHD':'telephone_in_HH',
+'H_TELAVL':'telephone_Available',
+'H_TELINT':'telephone_Interview',
+'GEREG':'region',
+'GESTFIPS':'state_FIPS_code',
+'GTCBSA':'cbsa_FIPS_code',
+'GTCO':'county_FIPS_code',
+'GTCBSAST':'balance_Status',
+'GTMETSTA':'metro_Status',
+'GTINDVPC':'principal_City_Code',
+'GTCBSASZ':'metro_Area_Size',
+'GTCSA':'csa_FIPS_Code',
+'HUNDER15':'age_under15_in_HH',
+'HH5TO18':'age_5_to_18_in_HH',
+'HHOTLUN':'all_or_None_Complete_SchoolLunch',
+'HHOTNO':'num_Complete_SchoolLunch',
+'HFLUNCH':'all_or_None_Free_Reduced_SchoolLunch',
+'HFLUNNO':'num_Free_Reduced_SchoolLunch',
+'HPUBLIC':'public_Housing',
+'HLORENT':'govt_Rent_Help',
+'HFOODSP':'food_Stamps',
+'HFOODNO':'num_children_covered_by_Food_Stamps',
+'HFOODMO':'months_of_Food_Assistance',
+'HENGAST':'govt_Energy_Assistance',
+'HENGVAL':'total_Energy_Assistance_Received',
+'HINC_WS':'was_Salary_Received',
+'HWSVAL':'salary',
+'HINC_SE':'has_Own_business',
+'HSEVAL':'is_Self_Employed',
+'HINC_FR':'farm_Self_Employed',
+'HFRVAL':'farmer_Income',
+'HINC_UC':'received_Unemployment',
+'HUCVAL':'unemployment_Compensation',
+'HINC_WC':'received_Working_Compensation',
+'HWCVAL':'working_Compensation',
+'HSS_YN':'received_Social_Security',
+'HSSVAL':'social_Security_Compensation',
+'HSSI_YN':'received_Supplemental_Security',
+'HSSIVAL':'supplement_Security_Compensation',
+'HPAW_YN':'received_Public_Assistance',
+'HPAWVAL':'public_Assistance_Compensation',
+'HVET_YN':'received_Veteran_Payments',
+'HVETVAL':'veteran_Payment_Compensation',
+'HSUR_YN':'received_Survivor_Compensation',
+'HSURVAL':'survivor_Compensation',
+'HDIS_YN':'received_Disability',
+'HDISVAL':'disability_Compensation',
+'HRET_YN':'received_Retirement',
+'HRETVAL':'retirement_Compensation',
+'HINT_YN':'received_Interest_Payments',
+'HINTVAL':'interest_Compensation',
+'HDIV_YN':'received_Dividends',
+'HDIVVAL':'dividend_Compensation',
+'HRNT_YN':'received_Rental_Payments',
+'HRNTVAL':'rental_Payment_Compensation',
+'HED_YN':'received_Education_Payments',
+'HEDVAL':'education_Payment_Compensation',
+'HCSP_YN':'received_Child_Support',
+'HCSPVAL':'child_Support_Compensation',
+'HFIN_YN':'received_Financial_Assistance',
+'HFINVAL':'financial_Assistance_Compensation',
+'HOI_YN':'received_Other_Income',
+'HOIVAL':'other_Income_Compensation',
+'HTOTVAL':'total_HH_Income',
+'HEARNVAL':'total_HH_Earnings',
+'HOTHVAL':'income_Outside_of_Earnings',
+'HHINC':'total_HH_Income_Bracket',
+'HMCARE':'medicare_coverage_in_HH',
+'HMCAID':'medicaid_coverage_in_HH',
+'HCHAMP':'va_or_Military_coverage_in_HH',
+'HHI_YN':'health_Insurance_in_HH',
+'HHSTATUS':'family_Living_in_HH',
+'HUNDER18':'age_under_18_in_HH',
+'HTOP5PCT':'top_5Percent_HH_Income',
+'HPCTCUT':'income_Percentile_HH',
+'HSUP_WGT':'final_Weight',
+'H1TENURE':'allocated_Ownership',
+'H1LIVQRT':'allocated_Living_Quarter',
+'H1TELHHD':'allocated_Telephone_in_HH',
+'H1TELAVL':'allocated_Telephone_Available',
+'H1TELINT':'allocated_Telephone_Interview',
+'I_HHOTLU':'allocated_SchoolLunch',
+'I_HHOTNO':'allocated_SchoolLunch2',
+'I_HFLUNC':'allocated_Free_SchoolLunch',
+'I_HFLUNN':'allocated_Free_SchoolLunch2',
+'I_HPUBLI':'allocated_Public_Housing',
+'I_HLOREN':'allocated_govt_Rent_Help',
+'I_HFOODS':'allocated_Food_Stamps',
+'I_HFDVAL':'allocated_New_Monthly_Food_Assistance_Val',
+'I_HFOODN':'allocated_Child_Food_Stamps',
+'I_HFOODM':'allocated_Monthly_Food_Assistance',
+'I_HENGAS':'allocated_govt_Energy_Assistance',
+'I_HENGVA':'allocated_new_Energy_Assistance_Value',
+'H_IDNUM2':'id_Part_2',
+'PROP_TAX':'annual_Property_Tax',
+'HOUSRET':'return_to_Home_Equity',
+'HRHTYPE':'marriage_Status_of_HH',
+'H_IDNUM1':'id_Part_1',
+'I_HUNITS':'allocated_Housing_Units',
+'HRPAIDCC':'child_Care_Payments',
+'HPROP_VAL':'property_Value_Estimate',
+'THPROP_VAL':'topcode_Property_Value',
+'I_PROPVAL':'allocated_Property_Value',
+'HRNUMWIC':'num_in_HH_WIC',
+'HRWICYN':'all_or_None_WIC',
+'HFDVAL':'monthly_Value_Food_Assistance',
+'TCARE_VAL':'topecode_Child_Care',
+'CARE_VAL':'child_Care_Yearly_Payment',
+'I_CAREVAL':'allocated_Child_Care',
+'HPRES_MORT':'presence_of_Mortgage',
+})
+
+# Move dependent variables to last two columns
+
+df = df[['record',
+'sequence_HH',
+'last_Two_ID',
+'num_HH_Units',
+'fam_Income',
+'respondent_Line_Num',
+'year_of_Survey',
+'interview',
+'people_in_HH',
+'families_in_HH',
+'type_of_HH',
+'month_of_Survey',
+'month_in_Sample',
+'HH_number',
+'type_of_Living_Quarters',
+'status_of_HH',
+'type_of_Ownership',
+'telephone_in_HH',
+'telephone_Available',
+'telephone_Interview',
+'region',
+'state_FIPS_code',
+'cbsa_FIPS_code',
+'county_FIPS_code',
+'balance_Status',
+'metro_Status',
+'principal_City_Code',
+'metro_Area_Size',
+'csa_FIPS_Code',
+'age_under15_in_HH',
+'age_5_to_18_in_HH',
+'all_or_None_Complete_SchoolLunch',
+'num_Complete_SchoolLunch',
+'all_or_None_Free_Reduced_SchoolLunch',
+'num_Free_Reduced_SchoolLunch',
+'public_Housing',
+'govt_Rent_Help',
+'food_Stamps',
+'num_children_covered_by_Food_Stamps',
+'months_of_Food_Assistance',
+'govt_Energy_Assistance',
+'total_Energy_Assistance_Received',
+'was_Salary_Received',
+'salary',
+'has_Own_business',
+'is_Self_Employed',
+'farm_Self_Employed',
+'farmer_Income',
+'received_Unemployment',
+'unemployment_Compensation',
+'received_Working_Compensation',
+'working_Compensation',
+'received_Social_Security',
+'social_Security_Compensation',
+'received_Supplemental_Security',
+'supplement_Security_Compensation',
+'received_Public_Assistance',
+'public_Assistance_Compensation',
+'received_Veteran_Payments',
+'veteran_Payment_Compensation',
+'received_Survivor_Compensation',
+'survivor_Compensation',
+'received_Disability',
+'disability_Compensation',
+'received_Retirement',
+'retirement_Compensation',
+'received_Interest_Payments',
+'interest_Compensation',
+'received_Dividends',
+'dividend_Compensation',
+'received_Rental_Payments',
+'rental_Payment_Compensation',
+'received_Education_Payments',
+'education_Payment_Compensation',
+'received_Child_Support',
+'child_Support_Compensation',
+'received_Financial_Assistance',
+'financial_Assistance_Compensation',
+'received_Other_Income',
+'other_Income_Compensation',
+'income_Outside_of_Earnings',
+'total_HH_Income_Bracket',
+'medicare_coverage_in_HH',
+'medicaid_coverage_in_HH',
+'va_or_Military_coverage_in_HH',
+'health_Insurance_in_HH',
+'family_Living_in_HH',
+'age_under_18_in_HH',
+'top_5Percent_HH_Income',
+'income_Percentile_HH',
+'final_Weight',
+'allocated_Ownership',
+'allocated_Living_Quarter',
+'allocated_Telephone_in_HH',
+'allocated_Telephone_Available',
+'allocated_Telephone_Interview',
+'allocated_SchoolLunch',
+'allocated_SchoolLunch2',
+'allocated_Free_SchoolLunch',
+'allocated_Free_SchoolLunch2',
+'allocated_Public_Housing',
+'allocated_govt_Rent_Help',
+'allocated_Food_Stamps',
+'allocated_New_Monthly_Food_Assistance_Val',
+'allocated_Child_Food_Stamps',
+'allocated_Monthly_Food_Assistance',
+'allocated_govt_Energy_Assistance',
+'allocated_new_Energy_Assistance_Value',
+'id_Part_2',
+'annual_Property_Tax',
+'return_to_Home_Equity',
+'marriage_Status_of_HH',
+'id_Part_1',
+'allocated_Housing_Units',
+'child_Care_Payments',
+'property_Value_Estimate',
+'topcode_Property_Value',
+'allocated_Property_Value',
+'num_in_HH_WIC',
+'all_or_None_WIC',
+'monthly_Value_Food_Assistance',
+'topecode_Child_Care',
+'child_Care_Yearly_Payment',
+'allocated_Child_Care',
+'presence_of_Mortgage',
+'total_HH_Income',
+'total_HH_Earnings']]
+
+#pickle.dump(df_renamed, open("2007-2018.p", "wb"))
+
+#df = pickle.load(open("2007-2018.p", "rb"))
+
+```
+
+```{r remove-1}
+
+df <- py$df
+
+#dropcols <- c('allocated_Child_Care','allocated_Property_Value','allocated_Housing_Units','allocated_new_Energy_Assistance_Value','allocated_Monthly_Food_Assistance','allocated_govt_Energy_Assistance','allocated_New_Monthly_Food_Assistance_Val','allocated_Child_Food_Stamps')
+
+# Set Child care payment values -1 to 0 (-1 = not applicable)
+df$child_Care_Yearly_Payment <- ifelse(
+  df$child_Care_Yearly_Payment == -1, 0, df$child_Care_Yearly_Payment)
+
+# Set -1 values to NA and plot results:
+df[df == -1] <- NA
+#plotNAs(df)
+
+# Filter out NAs:
+df <- df %>% filter(!is.na(total_HH_Income))
+df <- df %>% filter(!is.na(income_Outside_of_Earnings))
+df <- df %>% filter(!is.na(total_HH_Earnings))
+df <- df %>% filter(!is.na(return_to_Home_Equity))
+df <- df %>% filter(!is.na(rental_Payment_Compensation))
+df <- df %>% filter(!is.na(is_Self_Employed))
+df <- df %>% filter(!is.na(farmer_Income))
+df <- df %>% filter(!is.na(fam_Income))
+
+sum(is.na(df))
+
+#colnames(df)
+
+?use_python
+
+summary(df)
+
+write_csv(df, '2007-2018.csv')
+
+```
+
+Export pickle file:
+
+```{python export_pickle}
+
+pickle.dump(r.df, open("2007-2018.p", "wb"))
+
+```
+
+
+```{r setColumnNames, eval=FALSE}
+colnames(df) <- c(
+  'record',
+  'sequence_HH',
+  'last_Two_ID',
+  'num_HH_Units',
+  'fam_Income',
+  'respondent_Line_Num',
+  'year_of_Survey',
+  'interview',
+  'people_in_HH',
+  'families_in_HH',
+  'type_of_HH',
+  'month_of_Survey',
+  'month_in_Sample',
+  'HH_number',
+  'type_of_HH',
+  'status_of_HH',
+  'type_of_Ownership',
+  'telephone_in_HH',
+  'telephone_Available',
+  'telephone_Interview',
+  'region',
+  'state_FIPS_code',
+  'cbsa_FIPS_code',
+  'county_FIPS_code',
+  'balance_Status',
+  'metro_Status',
+  'principal_City_Code',
+  'metro_Area_Size',
+  'csa_FIPS_Code',
+  'age_under15_in_HH',
+  'age_5_to_18_in_HH',
+  'all_or_None_Complete_SchoolLunch',
+  'num_Complete_SchoolLunch',
+  'all_or_None_Free_Reduced_SchoolLunch',
+  'num_Free_Reduced_SchoolLunch',
+  'public_Housing',
+  'govt_Rent_Help',
+  'food_Stamps',
+  'num_children_covered_by_Food_Stamps',
+  'months_of_Food_Assistance',
+  'govt_Energy_Assistance',
+  'total_Energy_Assistance_Received',
+  'was_Salary_Received',
+  'salary',
+  'has_Own_business',
+  'is_Self_Employed',
+  'farm_Self_Employed',
+  'farmer_Income',
+  'received_Unemployment',
+  'unemployment_Compensation',
+  'received_Working_Compensation',
+  'working_Compensation',
+  'received_Social_Security',
+  'social_Security_Compensation',
+  'received_Supplemental_Security',
+  'supplement_Security_Compensation',
+  'received_Public_Assistance',
+  'public_Assistance_Compensation',
+  'received_Veteran_Payments',
+  'veteran_Payment_Compensation',
+  'received_Survivor_Compensation',
+  'survivor_Compensation',
+  'received_Disability',
+  'disability_Compensation',
+  'received_Retirement',
+  'retirement_Compensation',
+  'received_Interest_Payments',
+  'interest_Compensation',
+  'received_Dividends',
+  'dividend_Compensation',
+  'received_Rental_Payments',
+  'rental_Payment_Compensation',
+  'received_Education_Payments',
+  'education_Payment_Compensation',
+  'received_Child_Support',
+  'child_Support_Compensation',
+  'received_Financial_Assistance',
+  'financial_Assistance_Compensation',
+  'received_Other_Income',
+  'other_Income_Compensation',
+  'total_HH_Income',
+  'total_HH_Earnings',
+  'income_Outside_of_Earnings',
+  'total_HH_Income_Bracket',
+  'medicare_coverage_in_HH',
+  'medicaid_coverage_in_HH',
+  'va_or_Military_coverage_in_HH',
+  'health_Insurance_in_HH',
+  'family_Living_in_HH',
+  'age_under_18_in_HH',
+  'top_5Percent_HH_Income',
+  'income_Percentile_HH',
+  'final_Weight',
+  'allocated_Ownership',
+  'allocated_Living_Quarter',
+  'allocated_Telephone_in_HH',
+  'allocated_Telephone_Available',
+  'allocated_Telephone_Interview',
+  'allocated_SchoolLunch',
+  'allocated_SchoolLunch2',
+  'allocated_Free_SchoolLunch',
+  'allocated_Free_SchoolLunch2',
+  'allocated_Public_Housing',
+  'allocated_govt_Rent_Help',
+  'allocated_Food_Stamps',
+  'allocated_New_Monthly_Food_Assistance_Val',
+  ' allocated_Child_Food_Stamps ',
+  'allocated_Monthly_Food_Assistance',
+  'allocated_govt_Energy_Assistance',
+  'allocated_new_Energy_Assistance_Value',
+  'id_Part_2',
+  'annual_Property_Tax',
+  'return_to_Home_Equity',
+  'marriage_Status_of_HH',
+  'id_Part_1',
+  'allocated_Housing_Units',
+  'child_Care_Payments',
+  'property_Value_Estimate',
+  'topcode_Property_Value',
+  'allocated_Property_Value',
+  'num_in_HH_WIC',
+  'all_or_None_WIC',
+  'monthly_Value_Food_Assistance',
+  'topecode_Child_Care',
+  'child_Care_Yearly_Payment',
+  'allocated_Child_Care',
+  'presence_of_Mortgage'
+)
+
+```
+
+
+
+```{r glm}
+
+# Build feature list:
+x<-colnames(df)
+x<-x[x != "total_HH_Income"]
+x<-paste(x, collapse='+')
+x # copy this printed value into the model
+rm(x)
+
+fit <- glm(total_HH_Income ~ record+sequence_HH+last_Two_ID+num_HH_Units+fam_Income+respondent_Line_Num+year_of_Survey+interview+people_in_HH+families_in_HH+type_of_HH+month_of_Survey+month_in_Sample+HH_number+type_of_Living_Quarters+status_of_HH+type_of_Ownership+telephone_in_HH+telephone_Available+telephone_Interview+region+state_FIPS_code+cbsa_FIPS_code+county_FIPS_code+balance_Status+metro_Status+principal_City_Code+metro_Area_Size+csa_FIPS_Code+age_under15_in_HH+age_5_to_18_in_HH+all_or_None_Complete_SchoolLunch+num_Complete_SchoolLunch+all_or_None_Free_Reduced_SchoolLunch+num_Free_Reduced_SchoolLunch+public_Housing+govt_Rent_Help+food_Stamps+num_children_covered_by_Food_Stamps+months_of_Food_Assistance+govt_Energy_Assistance+total_Energy_Assistance_Received+was_Salary_Received+salary+has_Own_business+is_Self_Employed+farm_Self_Employed+farmer_Income+received_Unemployment+unemployment_Compensation+received_Working_Compensation+working_Compensation+received_Social_Security+social_Security_Compensation+received_Supplemental_Security+supplement_Security_Compensation+received_Public_Assistance+public_Assistance_Compensation+received_Veteran_Payments+veteran_Payment_Compensation+received_Survivor_Compensation+survivor_Compensation+received_Disability+disability_Compensation+received_Retirement+retirement_Compensation+received_Interest_Payments+interest_Compensation+received_Dividends+dividend_Compensation+received_Rental_Payments+rental_Payment_Compensation+received_Education_Payments+education_Payment_Compensation+received_Child_Support+child_Support_Compensation+received_Financial_Assistance+financial_Assistance_Compensation+received_Other_Income+other_Income_Compensation+income_Outside_of_Earnings+total_HH_Income_Bracket+medicare_coverage_in_HH+medicaid_coverage_in_HH+va_or_Military_coverage_in_HH+health_Insurance_in_HH+family_Living_in_HH+age_under_18_in_HH+top_5Percent_HH_Income+income_Percentile_HH+final_Weight+allocated_Ownership+allocated_Living_Quarter+allocated_Telephone_in_HH+allocated_Telephone_Available+allocated_Telephone_Interview+allocated_SchoolLunch+allocated_SchoolLunch2+allocated_Free_SchoolLunch+allocated_Free_SchoolLunch2+allocated_Public_Housing+allocated_govt_Rent_Help+allocated_Food_Stamps+allocated_New_Monthly_Food_Assistance_Val+allocated_Child_Food_Stamps+allocated_Monthly_Food_Assistance+allocated_govt_Energy_Assistance+allocated_new_Energy_Assistance_Value+id_Part_2+annual_Property_Tax+return_to_Home_Equity+marriage_Status_of_HH+id_Part_1+allocated_Housing_Units+child_Care_Payments+property_Value_Estimate+topcode_Property_Value+allocated_Property_Value+num_in_HH_WIC+all_or_None_WIC+monthly_Value_Food_Assistance+topecode_Child_Care+child_Care_Yearly_Payment+allocated_Child_Care+presence_of_Mortgage+total_HH_Earnings, data=df)
+
+summary(fit)
+
+
+# Split data into test/train (using 90% to increase plotting speed)
+trainIndices = sample(1:dim(df)[1],round(.90 * dim(df)[1]))
+train = df[trainIndices,]
+test = df[-trainIndices,]
+
+fit2 <- glm(total_HH_Income~
+              num_Complete_SchoolLunch+
+              salary+
+              is_Self_Employed+
+              farmer_Income+
+              received_Rental_Payments+
+              income_Outside_of_Earnings+
+              total_HH_Income_Bracket+
+              topcode_Property_Value,
+            data=train)
+
+summary(fit2)
+
+p <- predict(fit2, type="response", newdata = test)
+actualPred <- ifelse(p > 0.5, 1, 0)
+confusionMatrix(table(as.factor(actualPred), as.factor(test$total_HH_Income), dnn = c("Prediction", "Reference")), positive = '1')
+
+??confusionMatrix
+
+py_config()
+```
+
+```{r}
+predictions <- read_csv("./predictions.csv")
+
+summary(predictions)
+
+
+growth_rate = predictions %>%
+  # first sort by Year
+  arrange(City, Year) %>%
+  mutate(Diff_year = Year - lag(Year),  # Difference in time (just in case there are gaps)
+         Diff_growth = Income - lag(Income), # Difference in route between years
+         Rate_percent = (Income / lag(Income) -1) * 100) # growth rate in percent
+
+predictions$Year <- as.factor(predictions$Year)
+predictions %>% ggplot(aes(City, Income, color=Year)) + geom_point()
+predictions %>% ggplot(aes(Year, Income, color=City, group=City)) + geom_line() + geom_point()
+
+df2 <- df %>% filter(cbsa_FIPS_code %in% c(19820,16980,19100,26420,35620,31100))
+
+df2$city <- case_when(df2$cbsa_FIPS_code == 19820 ~ 'Detroit',
+                      df2$cbsa_FIPS_code == 16980 ~ 'Chicago',
+                      df2$cbsa_FIPS_code == 19100 ~ 'Dallas',
+                      df2$cbsa_FIPS_code == 26420 ~ 'Houston',
+                      df2$cbsa_FIPS_code == 35620 ~ 'NewYork',
+                      df2$cbsa_FIPS_code == 31100 ~ 'LosAngeles',
+                      TRUE~"OTHER")
+
+
+df2 %>% group_by(year_of_Survey, city) %>% summarise(avg_income = mean(total_HH_Income)) %>%
+
+ggplot(aes(year_of_Survey, avg_income, color=city, group=city)) + geom_line() + geom_point() + labs (y="Average Total Household Income", x="Year") + scale_y_continuous(labels = scales::comma)
+
+
+
+```
+
+```{r}
+drops <- c("record", "sequence_HH", "last_Two_ID", "fam_Income", "salary", "total_Energy_Assistance_Received", "social_Security_Compensation", "supplement_Security_Compensation", "income_Outside_of_Earnings", "final_Weight", "is_Self_Employed", "public_Assistance_Compensation", "veteram_Payment_Compensation", "survivor_Compensation", "dividend_Compensation", "child_Support_Compensation", "financial_Assistance_Compensation", "education_Payment_Compensation", "id_Part_2", "id_Part_1", "total_HH_Income_Bracket", "income_Percentile_HH", "total_HH_Earnings")
+
+df <- df[ , !(names(df) %in% drops)]
+
+set.seed(15)
+trainIndices = sample(1:dim(df)[1],round(.90 * dim(df)[1]))
+train = df[trainIndices,]
+test = df[-trainIndices,]
+
+write_csv(test, 'model2test.csv')
+write_csv(train, 'model2train.csv')
+
+```
+
